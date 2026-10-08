@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thailand Warehouse Location Analyzer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,"Noto Sans Thai",sans-serif;background:#07111f;color:#eef5ff}
+header{padding:18px 22px;background:#0c1b2e;border-bottom:1px solid #20354d}
+h1{margin:0;font-size:24px}header p{margin:6px 0 0;color:#9fb4ca;font-size:13px}
+.app{display:grid;grid-template-columns:310px 1fr 330px;height:calc(100vh - 88px)}
+.panel{padding:18px;background:#0b1727;overflow:auto;border-right:1px solid #20354d}
+.right{border-left:1px solid #20354d;border-right:0}.map{position:relative}
+#map{height:100%;min-height:500px}
+label{display:block;font-size:13px;color:#a9bdd1;margin:13px 0 6px}
+select,input{width:100%;padding:10px;border-radius:8px;border:1px solid #30465f;background:#12243a;color:white}
+button{width:100%;padding:11px;margin-top:15px;border:0;border-radius:9px;background:#1d9bf0;color:#fff;font-weight:bold;cursor:pointer}
+.card{background:#102238;border:1px solid #27415d;border-radius:11px;padding:13px;margin-bottom:11px}
+.big{font-size:32px;font-weight:bold}.muted{color:#9fb4ca;font-size:12px}.bar{height:8px;background:#20364e;border-radius:99px;overflow:hidden;margin:5px 0 10px}.bar i{display:block;height:100%;background:#35c98b}
+.rank{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #20354d;cursor:pointer}
+.tag{display:inline-block;padding:4px 7px;border-radius:6px;background:#183958;color:#8ed0ff;font-size:11px;margin:2px}
+.legend{position:absolute;left:16px;bottom:16px;background:#0b1727e8;padding:10px;border-radius:9px;font-size:12px;z-index:500}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+@media(max-width:1000px){.app{grid-template-columns:260px 1fr}.right{display:none}}
+@media(max-width:650px){.app{display:block;height:auto}.panel{height:auto}.map{height:65vh}#map{min-height:450px}}
+</style>
+</head>
+<body>
+<header>
+<h1>🇹🇭 Thailand Warehouse Location Analyzer</h1>
+<p>ระบบวิเคราะห์ทำเลคลังสินค้าเบื้องต้น — เปรียบเทียบความเหมาะสมของจังหวัดทั่วประเทศไทย</p>
+</header>
+<div class="app">
+<aside class="panel">
+<div class="card">
+<b>รูปแบบธุรกิจ</b>
+<label>เลือกประเภทคลัง</label>
+<select id="business">
+<option value="ecom">E-Commerce / Last Mile</option>
+<option value="industrial">Industrial / B2B</option>
+<option value="export">Import / Export</option>
+</select>
+</div>
+<div class="card">
+<b>น้ำหนักปัจจัย</b>
+<label>การเข้าถึงถนน <span id="rv">25</span>%</label><input id="road" type="range" min="0" max="50" value="25">
+<label>ตลาด/ลูกค้า <span id="mv">25</span>%</label><input id="market" type="range" min="0" max="50" value="25">
+<label>ท่าเรือ/สนามบิน <span id="pv">20</span>%</label><input id="port" type="range" min="0" max="50" value="20">
+<label>นิคม/อุตสาหกรรม <span id="iv">15</span>%</label><input id="industry" type="range" min="0" max="50" value="15">
+<label>ต้นทุนพื้นที่ <span id="cv">15</span>%</label><input id="cost" type="range" min="0" max="50" value="15">
+<button onclick="recalculate()">คำนวณคะแนนใหม่</button>
+</div>
+<div class="card">
+<b>วิธีใช้</b>
+<p class="muted">คลิกจังหวัดบนแผนที่เพื่อดูคะแนน ข้อดี ข้อเสีย และปัจจัยที่มีผลต่อทำเล</p>
+</div>
+</aside>
+<main class="map">
+<div id="map"></div>
+<div class="legend">
+<div><span class="dot" style="background:#35c98b"></span>เหมาะสมมาก 80–100</div>
+<div><span class="dot" style="background:#f5c542"></span>เหมาะสม 65–79</div>
+<div><span class="dot" style="background:#f08a3c"></span>ปานกลาง 50–64</div>
+<div><span class="dot" style="background:#e05252"></span>ควรศึกษาเพิ่ม &lt;50</div>
+</div>
+</main>
+<aside class="panel right">
+<div id="detail" class="card">
+<div class="muted">เลือกจังหวัดบนแผนที่</div>
+<h2>Warehouse Score</h2>
+<p>ระบบจะแสดงคะแนนและข้อดี–ข้อเสียของทำเลที่เลือก</p>
+</div>
+<div class="card">
+<b>🏆 Top 5 จังหวัด</b>
+<div id="ranking"></div>
+</div>
+<div class="card">
+<b>หมายเหตุ</b>
+<p class="muted">คะแนนในรุ่นนี้เป็นข้อมูลตัวอย่างสำหรับ Prototype ยังไม่ควรใช้ตัดสินใจลงทุนจริง ต้องนำข้อมูลต้นทุน ที่ดิน การจราจร ตลาด ท่าเรือ สนามบิน และความเสี่ยงจริงมาแทน</p>
+</div>
+</aside>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const geoURL="https://raw.githubusercontent.com/chingchai/OpenGISData-Thailand/master/provinces.geojson";
+const baseScores={
+"กรุงเทพมหานคร":[82,98,95,88,42],"สมุทรปราการ":[92,88,98,95,55],"ชลบุรี":[94,82,96,97,62],
+"ระยอง":[90,68,93,99,60],"ฉะเชิงเทรา":[91,75,88,96,72],"นครปฐม":[88,91,75,78,70],
+"ปทุมธานี":[91,94,78,82,48],"พระนครศรีอยุธยา":[93,76,72,91,82],"สระบุรี":[89,67,70,92,85],
+"นครราชสีมา":[86,74,60,88,90],"ขอนแก่น":[78,70,55,72,88],"เชียงใหม่":[70,82,58,61,62],
+"พิษณุโลก":[78,68,55,63,86],"สุราษฎร์ธานี":[74,72,76,66,78],"สงขลา":[76,77,86,72,70],
+"ภูเก็ต":[65,85,88,48,35],"นครสวรรค์":[77,66,50,62,90]
+};
+const defaults=[72,68,55,65,80];
+let map=L.map("map").setView([13.5,101],6);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap contributors"}).addTo(map);
+let layer, data=[], scores={};
+function score(name,bs){
+  let a=baseScores[name]||defaults, b=bs||[25,25,20,15,15], sum=b.reduce((x,y)=>x+y,0)||1;
+  return Math.round((a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3]+a[4]*b[4])/sum);
+}
+function color(s){return s>=80?"#35c98b":s>=65?"#f5c542":s>=50?"#f08a3c":"#e05252"}
+function show(name){
+  let s=scores[name]??score(name), a=baseScores[name]||defaults;
+  document.getElementById("detail").innerHTML=
+  `<div class="muted">จังหวัด</div><h2>${name}</h2><div class="big">${s}/100</div>
+  <div class="bar"><i style="width:${s}%"></i></div>
+  <div>${s>=80?"🟢 เหมาะสมมาก":s>=65?"🟡 เหมาะสม":"🟠 ควรศึกษาเพิ่มเติม"}</div>
+  <hr style="border-color:#20354d">
+  <b>ปัจจัย</b><p class="muted">ถนน ${a[0]} · ตลาด ${a[1]} · ท่าเรือ/สนามบิน ${a[2]} · อุตสาหกรรม ${a[3]} · ต้นทุน ${a[4]}</p>
+  <b>ข้อดี</b><p class="muted">${a[0]>85?"เข้าถึงโครงข่ายถนนได้ดี · ":""}${a[1]>80?"ใกล้ฐานลูกค้า · ":""}${a[2]>80?"เชื่อมต่อท่าเรือ/สนามบินดี · ":""}${a[3]>85?"มีฐานอุตสาหกรรม":"ทำเลมีศักยภาพตามน้ำหนักปัจจัย"}</p>
+  <b>ข้อควรระวัง</b><p class="muted">${a[4]<55?"ต้นทุนพื้นที่ค่อนข้างสูง · ":""}${a[0]<75?"ควรตรวจสอบการเข้าถึงถนนจริง · ":""}ควรตรวจสอบราคาที่ดินและความเสี่ยงพื้นที่ก่อนลงทุน</p>`;
+}
+function render(){
+  let weights=[+road.value,+market.value,+port.value,+industry.value,+cost.value];
+  weights.forEach((v,i)=>document.getElementById(["rv","mv","pv","iv","cv"][i]).textContent=v);
+  data.forEach(f=>{let n=f.properties.pro_th||f.properties.province||f.properties.name||"ไม่ทราบชื่อ";scores[n]=score(n,weights)});
+  if(layer)layer.remove();
+  layer=L.geoJSON(data,{style:f=>{let n=f.properties.pro_th||f.properties.province||f.properties.name||"";return {color:"#49647e",weight:.7,fillColor:color(scores[n]??score(n)),fillOpacity:.72}},onEachFeature:(f,l)=>{let n=f.properties.pro_th||f.properties.province||f.properties.name||"ไม่ทราบชื่อ";l.bindTooltip(n);l.on("click",()=>show(n));}}).addTo(map);
+  let top=Object.entries(scores).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  ranking.innerHTML=top.map((x,i)=>`<div class="rank" onclick="focusProvince('${x[0].replace(/'/g,"\\'")}')"><span>${i+1}. ${x[0]}</span><b>${x[1]}</b></div>`).join("");
+}
+function focusProvince(n){
+ let found;
+ layer.eachLayer(l=>{let p=l.feature.properties;let name=p.pro_th||p.province||p.name;if(name===n)found=l});
+ if(found){map.fitBounds(found.getBounds(),{padding:[30,30]});show(n)}
+}
+function recalculate(){render()}
+document.querySelectorAll("input[type=range]").forEach(x=>x.addEventListener("input",()=>{document.getElementById({road:"rv",market:"mv",port:"pv",industry:"iv",cost:"cv"}[x.id]).textContent=x.value}));
+business.addEventListener("change",()=>{let v=business.value;if(v==="ecom"){road.value=25;market.value=35;port.value=10;industry.value=10;cost.value=20}else if(v==="industrial"){road.value=30;market.value=15;port.value=20;industry.value=25;cost.value=10}else{road.value=25;market.value=10;port.value=35;industry.value=15;cost.value=15}recalculate()});
+fetch(geoURL).then(r=>r.json()).then(j=>{data=j.features;render()}).catch(e=>{detail.innerHTML="<b>โหลดแผนที่ไม่สำเร็จ</b><p class='muted'>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</p>"});
+</script>
+</body></html>
